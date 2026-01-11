@@ -8,6 +8,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { getSubtitles } from 'youtube-captions-scraper';
 
 dotenv.config();
 
@@ -16,6 +17,10 @@ const PORT = process.env.PORT || 3001;
 
 // AI_PROVIDER: "stub" (default) | "openai" | "claude"
 const AI_PROVIDER = (process.env.AI_PROVIDER || 'stub').toLowerCase();
+
+// In-memory cache for captions and generated analogies
+const captionsCache = new Map(); // videoId -> captions array
+const analogyCache = new Map();  // `${videoId}-${timestamp}` -> analogy result
 
 app.use(cors());
 app.use(express.json());
@@ -279,6 +284,233 @@ app.post('/api/explain', async (req, res) => {
 });
 
 /**
+ * Fetch and cache YouTube captions
+ */
+async function fetchCaptions(videoId) {
+  // Check cache first
+  if (captionsCache.has(videoId)) {
+    return captionsCache.get(videoId);
+  }
+
+  try {
+    const captions = await getSubtitles({
+      videoID: videoId,
+      lang: 'en',
+    });
+    captionsCache.set(videoId, captions);
+    return captions;
+  } catch (error) {
+    console.error('Error fetching captions:', error.message);
+    // Return empty array if captions not available
+    return [];
+  }
+}
+
+/**
+ * Get caption text at a specific timestamp
+ */
+function getCaptionAtTimestamp(captions, timestamp) {
+  if (!captions || captions.length === 0) {
+    return null;
+  }
+
+  // Find caption that contains this timestamp (with 2 second buffer)
+  const caption = captions.find(cap => {
+    const start = parseFloat(cap.start);
+    const duration = parseFloat(cap.dur) || 2;
+    return timestamp >= start && timestamp <= start + duration + 2;
+  });
+
+  if (caption) {
+    return caption.text;
+  }
+
+  // Find nearest caption within 5 seconds
+  let nearest = null;
+  let nearestDiff = Infinity;
+  for (const cap of captions) {
+    const start = parseFloat(cap.start);
+    const diff = Math.abs(timestamp - start);
+    if (diff < nearestDiff && diff <= 5) {
+      nearestDiff = diff;
+      nearest = cap;
+    }
+  }
+
+  return nearest ? nearest.text : null;
+}
+
+/**
+ * Generate NFL analogy from soccer commentary using Claude
+ */
+async function generateNFLAnalogy(commentary, videoContext) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  const prompt = `You are a sports analyst who explains soccer plays using NFL analogies for American football fans.
+
+Convert this soccer commentary into an NFL analogy that American football fans would understand:
+
+"${commentary}"
+
+Instructions:
+- Use NFL terminology and concepts
+- Compare soccer positions to NFL positions (e.g., striker = receiver making a catch, midfielder = quarterback, defender = linebacker)
+- Keep it concise (2-3 sentences max)
+- Make it engaging and easy to understand
+- Focus on the tactical parallel between the sports
+
+Respond with ONLY the NFL analogy, no preamble.`;
+
+  if (!apiKey) {
+    // Stub response when no API key
+    return generateStubNFLAnalogy(commentary);
+  }
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.content[0]?.text || generateStubNFLAnalogy(commentary);
+  } catch (error) {
+    console.error('Error generating NFL analogy:', error.message);
+    return generateStubNFLAnalogy(commentary);
+  }
+}
+
+/**
+ * Stub NFL analogy generator (when no API key)
+ */
+function generateStubNFLAnalogy(commentary) {
+  const lowerCommentary = commentary.toLowerCase();
+
+  if (lowerCommentary.includes('goal') || lowerCommentary.includes('score')) {
+    return "That's a touchdown moment! The striker hit the back of the net like a receiver catching a fade route in the end zone — perfect timing, perfect execution.";
+  }
+  if (lowerCommentary.includes('pass') || lowerCommentary.includes('through')) {
+    return "Think of that pass like a QB threading a seam route between the linebackers and safeties. The timing window was tiny, and the midfielder hit it perfectly.";
+  }
+  if (lowerCommentary.includes('defend') || lowerCommentary.includes('block') || lowerCommentary.includes('tackle')) {
+    return "That defensive play is like a linebacker reading the quarterback's eyes and jumping the route. Great anticipation to cut off the attacking lane.";
+  }
+  if (lowerCommentary.includes('save') || lowerCommentary.includes('keeper') || lowerCommentary.includes('goalkeeper')) {
+    return "The goalkeeper made a save like a safety coming over the top to break up a deep ball. Last line of defense doing their job perfectly.";
+  }
+  if (lowerCommentary.includes('foul') || lowerCommentary.includes('card')) {
+    return "That's a professional foul — like an intentional holding penalty when you're beat. Take the flag instead of giving up the big play.";
+  }
+  if (lowerCommentary.includes('corner') || lowerCommentary.includes('set piece')) {
+    return "This set piece is like a goal-line package play. Everyone has an assignment, and it's all about execution and winning the one-on-one battles.";
+  }
+
+  return "This play is like a well-designed offensive scheme — every player has a role, creating space and options. The team with the ball is probing for weaknesses while the defense reads and reacts.";
+}
+
+/**
+ * Determine field diagram type based on commentary
+ */
+function determineDiagramType(commentary) {
+  const lowerCommentary = commentary.toLowerCase();
+
+  if (lowerCommentary.includes('goal') || lowerCommentary.includes('score') || lowerCommentary.includes('finish')) {
+    return 'goal';
+  }
+  if (lowerCommentary.includes('through') || lowerCommentary.includes('pass')) {
+    return 'through-ball';
+  }
+  if (lowerCommentary.includes('offside') || lowerCommentary.includes('trap')) {
+    return 'offside-trap';
+  }
+  return 'defensive';
+}
+
+/**
+ * POST /api/generate-analogy
+ * Generate NFL analogy for a video timestamp
+ */
+app.post('/api/generate-analogy', async (req, res) => {
+  try {
+    const { videoId, timestamp, caption: providedCaption } = req.body;
+
+    if (!videoId) {
+      return res.status(400).json({ error: 'videoId is required' });
+    }
+
+    const ts = parseFloat(timestamp) || 0;
+    const cacheKey = `${videoId}-${Math.floor(ts / 5) * 5}`; // Round to 5-second buckets
+
+    // Check analogy cache
+    if (analogyCache.has(cacheKey)) {
+      console.log(`Cache hit for ${cacheKey}`);
+      return res.json(analogyCache.get(cacheKey));
+    }
+
+    // Get caption - use provided or fetch from YouTube
+    let commentary = providedCaption;
+    if (!commentary) {
+      const captions = await fetchCaptions(videoId);
+      commentary = getCaptionAtTimestamp(captions, ts);
+    }
+
+    // If no caption available, use a generic description
+    if (!commentary) {
+      commentary = `Soccer action at ${Math.floor(ts / 60)}:${Math.floor(ts % 60).toString().padStart(2, '0')}`;
+    }
+
+    // Generate NFL analogy
+    const nflAnalogy = await generateNFLAnalogy(commentary, { videoId, timestamp: ts });
+    const fieldDiagram = determineDiagramType(commentary);
+
+    const result = {
+      originalCommentary: commentary,
+      nflAnalogy,
+      fieldDiagram,
+      timestamp: ts,
+      videoId,
+      cached: false,
+    };
+
+    // Cache the result
+    analogyCache.set(cacheKey, { ...result, cached: true });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error in /api/generate-analogy:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/captions/:videoId
+ * Fetch captions for a YouTube video
+ */
+app.get('/api/captions/:videoId', async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const captions = await fetchCaptions(videoId);
+    res.json({ videoId, captions, count: captions.length });
+  } catch (error) {
+    console.error('Error fetching captions:', error);
+    res.status(500).json({ error: 'Failed to fetch captions' });
+  }
+});
+
+/**
  * Health check endpoint
  */
 app.get('/health', (req, res) => {
@@ -287,6 +519,8 @@ app.get('/health', (req, res) => {
     provider: AI_PROVIDER,
     hasOpenAIKey: !!process.env.OPENAI_API_KEY,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    captionsCacheSize: captionsCache.size,
+    analogyCacheSize: analogyCache.size,
   });
 });
 

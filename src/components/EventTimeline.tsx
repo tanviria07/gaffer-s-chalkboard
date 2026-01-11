@@ -45,9 +45,9 @@ const EventTimeline = ({ events, selectedEventId, onSelectEvent }: EventTimeline
   };
 
   return (
-    <div className="space-y-3">
+    <div className="h-full flex flex-col min-h-0">
       {/* Header with helper text */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-shrink-0 mb-2">
         <div className="flex items-center gap-2">
           <Swords className="w-5 h-5 text-chalk-yellow" />
           <h2 className="font-chalk text-2xl text-chalk">Event Timeline</h2>
@@ -66,7 +66,7 @@ const EventTimeline = ({ events, selectedEventId, onSelectEvent }: EventTimeline
       </div>
 
       {/* Events list */}
-      <div className="space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
         {events.map((event, index) => {
           const isSelected = selectedEventId === event.id;
           
@@ -130,31 +130,6 @@ const EventTimeline = ({ events, selectedEventId, onSelectEvent }: EventTimeline
         })}
       </div>
 
-      {/* Timeline progress bar */}
-      <div className="mt-4 pt-4 border-t border-chalk-white/10">
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5, 6].map((segment) => (
-            <Tooltip key={segment}>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    "h-2.5 flex-1 rounded-sm transition-all cursor-pointer hover:scale-y-125",
-                    segment <= 3 ? "bg-primary/80 hover:bg-primary" : "bg-chalk-white/20 hover:bg-chalk-white/30"
-                  )}
-                />
-              </TooltipTrigger>
-              <TooltipContent className="bg-card border-chalk-white/20">
-                <p className="text-xs">{(segment - 1) * 15}' - {segment * 15}'</p>
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-        <div className="flex justify-between mt-1.5 text-xs text-chalk-white/50 font-body">
-          <span>0'</span>
-          <span>45' HT</span>
-          <span>90'</span>
-        </div>
-      </div>
     </div>
   );
 };

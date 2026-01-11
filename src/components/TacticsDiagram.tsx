@@ -127,11 +127,11 @@ const TacticsDiagram = ({ diagramType }: TacticsDiagramProps) => {
   };
 
   return (
-    <div className="chalk-border rounded-lg p-3 bg-chalk-green-light/30">
-      <svg 
-        viewBox="0 0 240 100" 
+    <div className="chalk-border rounded-lg p-2 bg-chalk-green-light/30">
+      <svg
+        viewBox="0 0 240 100"
         className="w-full h-auto"
-        style={{ maxHeight: '140px' }}
+        style={{ maxHeight: '100px' }}
       >
         {/* Field outline */}
         <rect 
