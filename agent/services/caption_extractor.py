@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class YouTubeCaptionExtractor:
-    """Extract captions from YouTube videos"""
+    """Extract captions from videos using yt-dlp (supports YouTube and many other sites)"""
     
     def __init__(self):
         self.caption_cache: Dict[str, List[Dict]] = {}
@@ -23,12 +23,19 @@ class YouTubeCaptionExtractor:
             'writeautomaticsub': False,
         }
     
-    async def get_caption_at_timestamp(self, video_id: str, timestamp: float) -> Optional[str]:
+    def _get_cache_key(self, video_url_or_id: str) -> str:
+        """Get cache key - use URL if it's a full URL, otherwise treat as video ID"""
+        if video_url_or_id.startswith('http://') or video_url_or_id.startswith('https://'):
+            return video_url_or_id
+        # Legacy: treat as YouTube video ID
+        return f"https://www.youtube.com/watch?v={video_url_or_id}"
+    
+    async def get_caption_at_timestamp(self, video_url_or_id: str, timestamp: float) -> Optional[str]:
         """
         Get caption text at a specific timestamp
         
         Args:
-            video_id: YouTube video ID
+            video_url_or_id: Video URL (any site) or YouTube video ID (for backward compatibility)
             timestamp: Timestamp in seconds
         
         Returns:
@@ -36,7 +43,7 @@ class YouTubeCaptionExtractor:
         """
         try:
             # Get all captions (cached)
-            captions = await self.fetch_captions(video_id)
+            captions = await self.fetch_captions(video_url_or_id)
             
             if not captions:
                 return None
@@ -71,20 +78,22 @@ class YouTubeCaptionExtractor:
             logger.error(f"Error getting caption at timestamp: {e}")
             return None
     
-    async def fetch_captions(self, video_id: str) -> List[Dict]:
+    async def fetch_captions(self, video_url_or_id: str) -> List[Dict]:
         """
         Fetch all captions for a video (cached)
         
         Args:
-            video_id: YouTube video ID
+            video_url_or_id: Video URL (any site) or YouTube video ID (for backward compatibility)
         
         Returns:
             List of caption dictionaries with 'start', 'duration', 'text'
         """
+        cache_key = self._get_cache_key(video_url_or_id)
+        
         # Check cache first
-        if video_id in self.caption_cache:
-            logger.info(f"Using cached captions for {video_id}")
-            return self.caption_cache[video_id]
+        if cache_key in self.caption_cache:
+            logger.info(f"Using cached captions for {cache_key}")
+            return self.caption_cache[cache_key]
         
         try:
             # Run blocking yt-dlp in thread pool with timeout
@@ -93,37 +102,42 @@ class YouTubeCaptionExtractor:
                 loop.run_in_executor(
                     None,
                     self._fetch_captions_sync,
-                    video_id
+                    video_url_or_id
                 ),
-                timeout=3.0  # 3 second timeout
+                timeout=5.0  # 5 second timeout for generic URLs
             )
             
             # Cache captions
             if captions:
-                self.caption_cache[video_id] = captions
-                logger.info(f"Cached {len(captions)} captions for {video_id}")
+                self.caption_cache[cache_key] = captions
+                logger.info(f"Cached {len(captions)} captions for {cache_key}")
             
             return captions or []
             
         except asyncio.TimeoutError:
-            logger.warning(f"Caption fetch timeout for {video_id}")
+            logger.warning(f"Caption fetch timeout for {video_url_or_id}")
             return []
         except Exception as e:
             logger.error(f"Error fetching captions: {e}")
             return []
     
-    def _fetch_captions_sync(self, video_id: str) -> List[Dict]:
+    def _fetch_captions_sync(self, video_url_or_id: str) -> List[Dict]:
         """
         Synchronous caption fetching (runs in thread pool)
         
         Args:
-            video_id: YouTube video ID
+            video_url_or_id: Video URL (any site) or YouTube video ID (for backward compatibility)
         
         Returns:
             List of caption dictionaries
         """
         try:
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            # If it's a full URL, use it directly; otherwise treat as YouTube video ID
+            if video_url_or_id.startswith('http://') or video_url_or_id.startswith('https://'):
+                video_url = video_url_or_id
+            else:
+                # Legacy: treat as YouTube video ID
+                video_url = f"https://www.youtube.com/watch?v={video_url_or_id}"
             
             with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                 # Get video info
@@ -151,7 +165,7 @@ class YouTubeCaptionExtractor:
                     caption_tracks = subtitles[first_lang]
                 
                 if not caption_tracks:
-                    logger.warning(f"No captions available for {video_id}")
+                    logger.warning(f"No captions available for {video_url}")
                     return []
                 
                 # Get the first available caption URL
@@ -167,7 +181,7 @@ class YouTubeCaptionExtractor:
                     caption_url = first_track.get('url')
                 
                 if not caption_url:
-                    logger.warning(f"No caption URL found for {video_id}")
+                    logger.warning(f"No caption URL found for {video_url}")
                     return []
                 
                 # Download and parse captions
@@ -203,7 +217,7 @@ class YouTubeCaptionExtractor:
                             'text': text
                         })
                 
-                logger.info(f"Fetched {len(captions)} captions for {video_id}")
+                logger.info(f"Fetched {len(captions)} captions for {video_url}")
                 return captions
                 
         except Exception as e:

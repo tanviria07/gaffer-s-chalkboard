@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 
 class AnalyzeRequest(BaseModel):
     """Request model for video analysis"""
-    videoId: str = Field(..., description="YouTube video ID")
+    videoId: str = Field(..., description="Video URL (any site) or YouTube video ID (for backward compatibility)")
     timestamp: float = Field(..., description="Current video timestamp in seconds")
 
 

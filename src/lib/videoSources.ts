@@ -84,6 +84,42 @@ class YouTubeProvider implements VideoSourceProvider {
 }
 
 /**
+ * Generic Video Provider - accepts any valid URL
+ */
+class GenericVideoProvider implements VideoSourceProvider {
+  getType(): VideoSourceType {
+    return 'unknown';
+  }
+
+  canHandle(url: string): boolean {
+    return this.validate(url);
+  }
+
+  validate(url: string): boolean {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+
+    // Accept any valid HTTP/HTTPS URL
+    try {
+      const urlObj = new URL(url.trim());
+      return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  extractVideoId(url: string): string | null {
+    // For generic URLs, use the full URL as the "video ID"
+    // This allows the backend to process any video URL
+    if (this.validate(url)) {
+      return url.trim();
+    }
+    return null;
+  }
+}
+
+/**
  * Video Source Manager
  * Manages multiple video source providers
  */
@@ -91,8 +127,9 @@ class VideoSourceManager {
   private providers: VideoSourceProvider[] = [];
 
   constructor() {
-    // Register default providers
+    // Register default providers (YouTube first, then generic)
     this.registerProvider(new YouTubeProvider());
+    this.registerProvider(new GenericVideoProvider());
   }
 
   registerProvider(provider: VideoSourceProvider): void {
@@ -138,4 +175,4 @@ class VideoSourceManager {
 export const videoSourceManager = new VideoSourceManager();
 
 // Export provider classes for testing/extending
-export { YouTubeProvider };
+export { YouTubeProvider, GenericVideoProvider };

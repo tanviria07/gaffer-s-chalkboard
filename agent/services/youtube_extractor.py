@@ -23,12 +23,12 @@ class YouTubeFrameExtractor:
             'extract_flat': False,
         }
     
-    async def extract_frame(self, video_id: str, timestamp: float) -> Optional[str]:
+    async def extract_frame(self, video_url_or_id: str, timestamp: float) -> Optional[str]:
         """
-        Extract a single frame from YouTube video at given timestamp
+        Extract a single frame from video at given timestamp
         
         Args:
-            video_id: YouTube video ID
+            video_url_or_id: Video URL (any site) or YouTube video ID (for backward compatibility)
             timestamp: Timestamp in seconds
         
         Returns:
@@ -40,7 +40,7 @@ class YouTubeFrameExtractor:
             frame = await loop.run_in_executor(
                 None, 
                 self._extract_frame_sync, 
-                video_id, 
+                video_url_or_id, 
                 timestamp
             )
             return frame
@@ -48,12 +48,12 @@ class YouTubeFrameExtractor:
             logger.error(f"Frame extraction error: {e}")
             return None
     
-    def _extract_frame_sync(self, video_id: str, timestamp: float) -> Optional[str]:
+    def _extract_frame_sync(self, video_url_or_id: str, timestamp: float) -> Optional[str]:
         """
         Synchronous frame extraction (runs in thread pool)
         
         Args:
-            video_id: YouTube video ID
+            video_url_or_id: Video URL (any site) or YouTube video ID (for backward compatibility)
             timestamp: Timestamp in seconds
         
         Returns:
@@ -61,15 +61,20 @@ class YouTubeFrameExtractor:
         """
         cap = None
         try:
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-            logger.info(f"Extracting frame from {video_id} at {timestamp}s")
+            # If it's a full URL, use it directly; otherwise treat as YouTube video ID
+            if video_url_or_id.startswith('http://') or video_url_or_id.startswith('https://'):
+                video_url = video_url_or_id
+            else:
+                # Legacy: treat as YouTube video ID
+                video_url = f"https://www.youtube.com/watch?v={video_url_or_id}"
+            logger.info(f"Extracting frame from {video_url[:50]}... at {timestamp}s")
             
             # Get video stream URL using yt-dlp
             with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                 try:
                     info = ydl.extract_info(video_url, download=False)
                     if not info or 'url' not in info:
-                        logger.error(f"Failed to get stream URL for {video_id}")
+                        logger.error(f"Failed to get stream URL for {video_url[:50]}...")
                         return None
                     stream_url = info['url']
                 except Exception as e:
@@ -80,7 +85,7 @@ class YouTubeFrameExtractor:
             cap = cv2.VideoCapture(stream_url)
             
             if not cap.isOpened():
-                logger.error(f"Failed to open video stream for {video_id}")
+                logger.error(f"Failed to open video stream for {video_url[:50]}...")
                 return None
             
             # Seek to timestamp (convert to milliseconds)
@@ -90,7 +95,7 @@ class YouTubeFrameExtractor:
             success, frame = cap.read()
             
             if not success or frame is None:
-                logger.warning(f"Failed to read frame at {timestamp}s for {video_id}")
+                logger.warning(f"Failed to read frame at {timestamp}s for {video_url[:50]}...")
                 return None
             
             # Resize for API efficiency (384x384 for faster processing)
@@ -121,7 +126,7 @@ class YouTubeFrameExtractor:
             # Convert to base64
             base64_image = base64.b64encode(buffer).decode('utf-8')
             
-            logger.info(f"Successfully extracted frame from {video_id} at {timestamp}s")
+            logger.info(f"Successfully extracted frame from {video_url[:50]}... at {timestamp}s")
             return base64_image
             
         except Exception as e:

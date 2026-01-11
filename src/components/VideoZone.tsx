@@ -158,7 +158,7 @@ const VideoZone = ({ currentMinute, videoUrl = '', onVideoUrlChange, onCurrentTi
           setError(null);
         } else {
           setVideoSource(null);
-          setError('Please enter a valid YouTube URL');
+          setError('Please enter a valid video URL');
         }
       } else {
         setVideoSource(null);
@@ -189,7 +189,7 @@ const VideoZone = ({ currentMinute, videoUrl = '', onVideoUrlChange, onCurrentTi
       }
     } else {
       setVideoSource(null);
-      setError('Please enter a valid YouTube URL');
+      setError('Please enter a valid video URL');
     }
   };
 
@@ -239,7 +239,7 @@ const VideoZone = ({ currentMinute, videoUrl = '', onVideoUrlChange, onCurrentTi
         <div className="flex gap-2">
           <Input
             type="text"
-            placeholder="Paste YouTube video URL here..."
+            placeholder="Paste any video URL here..."
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onBlur={handleInputBlur}
@@ -274,6 +274,15 @@ const VideoZone = ({ currentMinute, videoUrl = '', onVideoUrlChange, onCurrentTi
           {videoSource && videoSource.type === 'youtube' && isApiReady ? (
             /* YouTube player container */
             <div id="youtube-player" className="w-full h-full" />
+          ) : videoSource && videoSource.type === 'unknown' ? (
+            /* Generic video iframe for non-YouTube sources */
+            <iframe
+              src={videoSource.url}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              title="Video player"
+            />
           ) : (
             /* Placeholder content when no video is loaded */
             <>

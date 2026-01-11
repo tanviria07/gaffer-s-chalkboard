@@ -23,19 +23,25 @@ const Index = () => {
   const lastFetchedTime = useRef<number>(-1);
 
   const [analysis, setAnalysis] = useState<AnalysisState>({
-    commentary: "Paste a YouTube video URL to see real-time soccer analysis with NFL analogies.",
+    commentary: "Paste a video URL to see real-time soccer analysis with NFL analogies.",
     nflAnalogy: "NFL analogies will appear here as you watch the video.",
     fieldDiagram: 'defensive',
     isLoading: false,
     timestamp: 0,
   });
 
-  // Extract video ID when URL changes
+  // Extract video ID/URL when URL changes
   useEffect(() => {
     if (videoUrl) {
       const parsed = videoSourceManager.parseUrl(videoUrl);
-      if (parsed && parsed.type === 'youtube') {
-        setVideoId(parsed.videoId);
+      if (parsed) {
+        // For YouTube, use video ID; for others, use full URL
+        if (parsed.type === 'youtube') {
+          setVideoId(parsed.videoId);
+        } else {
+          // For generic videos, use the full URL
+          setVideoId(parsed.url);
+        }
       } else {
         setVideoId(null);
       }
@@ -58,7 +64,7 @@ const Index = () => {
     setAnalysis(prev => ({ ...prev, isLoading: true }));
 
     try {
-      // Backend will extract frame from YouTube automatically
+      // Backend will extract captions from video automatically
       const result: AnalogyOutput = await generateAnalogy({
         videoId,
         timestamp,
