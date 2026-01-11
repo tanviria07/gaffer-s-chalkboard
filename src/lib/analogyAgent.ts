@@ -1,18 +1,17 @@
 /**
  * Analogy Agent API Client
- * Handles communication with the backend for NFL analogy generation
+ * Handles communication with the Python FastAPI backend for NFL analogy generation
  */
 
 export interface AnalogyInput {
   videoId: string;
   timestamp: number;
-  caption?: string;
 }
 
 export interface AnalogyOutput {
   originalCommentary: string;
   nflAnalogy: string;
-  fieldDiagram: 'through-ball' | 'offside-trap' | 'goal' | 'defensive';
+  fieldDiagram: 'through-ball' | 'offside-trap' | 'goal' | 'defensive' | any;
   timestamp: number;
   videoId: string;
   cached: boolean;
@@ -21,23 +20,39 @@ export interface AnalogyOutput {
 const API_BASE = '/api';
 
 /**
- * Generate NFL analogy for a video timestamp
+ * Generate NFL analogy for a video timestamp using Python FastAPI agent
+ * Backend will extract the frame from YouTube automatically
  */
 export async function generateAnalogy(input: AnalogyInput): Promise<AnalogyOutput> {
   try {
-    const response = await fetch(`${API_BASE}/generate-analogy`, {
+    const response = await fetch(`${API_BASE}/analyze`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        videoId: input.videoId,
+        timestamp: input.timestamp,
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`API error: ${response.status} - ${errorText}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    
+    // Map Python API response to our frontend format
+    // Note: fieldDiagram is optional now, use default if not present
+    return {
+      originalCommentary: data.originalCommentary || `Soccer action at ${formatTime(input.timestamp)}`,
+      nflAnalogy: data.nflAnalogy || "This play is like a well-designed offensive scheme — every player has a role, creating space and options.",
+      fieldDiagram: data.fieldDiagram?.diagramType || 'defensive',
+      timestamp: data.timestamp || input.timestamp,
+      videoId: input.videoId,
+      cached: data.cached || false,
+    };
   } catch (error) {
     console.error('Error generating analogy:', error);
     // Return fallback response

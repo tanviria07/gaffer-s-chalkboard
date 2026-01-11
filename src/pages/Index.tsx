@@ -48,9 +48,9 @@ const Index = () => {
   const fetchAnalogy = useCallback(async (timestamp: number) => {
     if (!videoId) return;
 
-    // Only fetch if we've moved more than 3 seconds from last fetch
-    const roundedTime = Math.floor(timestamp / 5) * 5;
-    if (Math.abs(roundedTime - lastFetchedTime.current) < 5) {
+    // Only fetch if we've moved more than 10 seconds from last fetch (reduced frequency)
+    const roundedTime = Math.floor(timestamp / 10) * 10;
+    if (Math.abs(roundedTime - lastFetchedTime.current) < 10) {
       return;
     }
 
@@ -58,6 +58,7 @@ const Index = () => {
     setAnalysis(prev => ({ ...prev, isLoading: true }));
 
     try {
+      // Backend will extract frame from YouTube automatically
       const result: AnalogyOutput = await generateAnalogy({
         videoId,
         timestamp,
